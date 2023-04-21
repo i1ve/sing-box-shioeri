@@ -55,6 +55,9 @@ type Router struct {
 	inboundByTag                       map[string]adapter.Inbound
 	outbounds                          []adapter.Outbound
 	outboundByTag                      map[string]adapter.Outbound
+	proxyProviders                     []adapter.ProxyProvider
+	proxyProviderByTag                 map[string]adapter.ProxyProvider
+	proxyProviderOutbounds             map[string][]adapter.Outbound
 	rules                              []adapter.Rule
 	defaultDetour                      string
 	defaultOutboundForConnection       adapter.Outbound
@@ -334,7 +337,7 @@ func NewRouter(
 	return router, nil
 }
 
-func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outbound, defaultOutbound func() adapter.Outbound) error {
+func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outbound, proxyProviders []adapter.ProxyProvider, proxyProviderOutbounds map[string][]adapter.Outbound, defaultOutbound func() adapter.Outbound) error {
 	inboundByTag := make(map[string]adapter.Inbound)
 	for _, inbound := range inbounds {
 		inboundByTag[inbound.Tag()] = inbound
@@ -342,6 +345,14 @@ func (r *Router) Initialize(inbounds []adapter.Inbound, outbounds []adapter.Outb
 	outboundByTag := make(map[string]adapter.Outbound)
 	for _, detour := range outbounds {
 		outboundByTag[detour.Tag()] = detour
+	}
+	if proxyProviders != nil {
+		r.proxyProviders = proxyProviders
+		r.proxyProviderByTag = make(map[string]adapter.ProxyProvider)
+		for _, provider := range proxyProviders {
+			r.proxyProviderByTag[provider.Tag()] = provider
+		}
+		r.proxyProviderOutbounds = proxyProviderOutbounds
 	}
 	var defaultOutboundForConnection adapter.Outbound
 	var defaultOutboundForPacketConnection adapter.Outbound

@@ -15,6 +15,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/outbound"
+	"github.com/sagernet/sing-box/proxyprovider"
 	"github.com/sagernet/sing-box/route"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -76,6 +77,7 @@ func New(options Options) (*Box, error) {
 	if err != nil {
 		return nil, E.Cause(err, "create log factory")
 	}
+	logger := logFactory.Logger()
 	router, err := route.NewRouter(
 		ctx,
 		logFactory,
@@ -129,7 +131,32 @@ func New(options Options) (*Box, error) {
 		}
 		outbounds = append(outbounds, out)
 	}
-	err = router.Initialize(inbounds, outbounds, func() adapter.Outbound {
+	var proxyProviders []adapter.ProxyProvider
+	var proxyProviderOutbounds map[string][]adapter.Outbound
+	if options.ProxyProviders != nil && len(options.ProxyProviders) > 0 {
+		proxyProviders = make([]adapter.ProxyProvider, 0)
+		proxyProviderOutbounds = make(map[string][]adapter.Outbound)
+		for i, proxyProviderOptions := range options.ProxyProviders {
+			pp, err := proxyprovider.NewProxyProvider(ctx, router, logFactory, proxyProviderOptions)
+			if err != nil {
+				return nil, E.Cause(err, "parse proxy provider[", i, "]")
+			}
+			logger.Info("init proxy provider[", i, "]")
+			err = pp.SubScribeAndParse()
+			if err != nil {
+				return nil, E.Cause(err, "subscribe proxy provider[", i, "]")
+			}
+			outs, err := pp.GetOutbounds()
+			if err != nil {
+				return nil, E.Cause(err, "get outbounds from proxy provider[", i, "]")
+			}
+			outbounds = append(outbounds, outs...)
+			proxyProviderOutbounds[pp.Tag()] = outs
+			proxyProviders = append(proxyProviders, pp)
+			logger.Info("init proxy provider[", i, "]", " done")
+		}
+	}
+	err = router.Initialize(inbounds, outbounds, proxyProviders, proxyProviderOutbounds, func() adapter.Outbound {
 		out, oErr := outbound.New(ctx, router, logFactory.NewLogger("outbound/direct"), "direct", option.Outbound{Type: "direct", Tag: "default"})
 		common.Must(oErr)
 		outbounds = append(outbounds, out)
@@ -170,7 +197,7 @@ func New(options Options) (*Box, error) {
 		outbounds:    outbounds,
 		createdAt:    createdAt,
 		logFactory:   logFactory,
-		logger:       logFactory.Logger(),
+		logger:       logger,
 		preServices:  preServices,
 		postServices: postServices,
 		done:         make(chan struct{}),

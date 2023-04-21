@@ -55,6 +55,11 @@ type Router interface {
 	SetV2RayServer(server V2RayServer)
 
 	ResetNetwork() error
+
+	ListProxyProvider() []ProxyProvider
+	GetProxyProvider(tag string) ProxyProvider
+	ListProxyProviderOutbounds() map[string][]Outbound
+	GetProxyProviderOutbound(tag string) []Outbound
 }
 
 func ContextWithRouter(ctx context.Context, router Router) context.Context {
