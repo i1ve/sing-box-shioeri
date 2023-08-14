@@ -1,0 +1,127 @@
+name: Build Core Android
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TAGS: with_quic,with_grpc,with_wireguard,with_gvisor,with_shadowsocksr,with_utls,with_ech,with_clash_api,with_proxyprovider
+      liteTAGS: with_quic,with_clash_api,with_proxyprovider
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get latest go version
+        id: go_version
+        run: |
+          echo go_version=$(curl -s https://raw.githubusercontent.com/actions/go-versions/main/versions-manifest.json | grep -oE '"version": "[0-9]{1}.[0-9]{1,}(.[0-9]{1,})?"' | head -1 | cut -d':' -f2 | sed 's/ //g; s/"//g') >> $GITHUB_OUTPUT
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21.0'
+
+      - name: Update Go Module 
+        run: |
+          go mod tidy
+
+      # - name: Install UPX
+        # run: |
+          # sudo apt-get install upx -y
+          
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+          add-to-path: false
+          local-cache: true
+
+      - name: Build core
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          mkdir -p bin
+          CC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin
+          VERSION=$(git describe --tags)
+          BUILDDATE=$(TZ=Asia/Jakarta date)
+
+          CGO_ENABLED=1 CC=${CC}/aarch64-linux-android33-clang GOARCH=arm64 GOOS=android go build -v -trimpath -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION} ${BUILDDATE}' -s -w -buildid=" -tags ${TAGS} -o bin/sing-box-${VERSION}-android-armv8 ./cmd/sing-box
+          CGO_ENABLED=1 CC=${CC}/armv7a-linux-androideabi33-clang GOARCH=arm GOARM=7 GOOS=android go build -v -trimpath -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION} ${BUILDDATE}' -s -w -buildid=" -tags ${TAGS} -o bin/sing-box-${VERSION}-android-armv7 ./cmd/sing-box
+
+          CGO_ENABLED=1 CC=${CC}/aarch64-linux-android33-clang GOARCH=arm64 GOOS=android go build -v -trimpath -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION} ${BUILDDATE}' -s -w -buildid=" -tags ${liteTAGS} -o bin/sing-box-${VERSION}-android-armv8-liteTAGS ./cmd/sing-box
+          CGO_ENABLED=1 CC=${CC}/armv7a-linux-androideabi33-clang GOARCH=arm GOARM=7 GOOS=android go build -v -trimpath -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION} ${BUILDDATE}' -s -w -buildid=" -tags ${liteTAGS} -o bin/sing-box-${VERSION}-android-armv7-liteTAGS ./cmd/sing-box
+
+      # - name: Compress UPX binaries
+        # run: |
+          # VERSION=$(git describe --tags)
+          # chmod +x ./bin/*
+          # # List of architectures to compress
+          # ARCHITECTURES=("android-armv8-liteTAGS" "android-armv7-liteTAGS" "android-armv8" "android-armv7")
+      
+          # # Loop through each architecture and compress the corresponding files
+          # for ARCH in "${ARCHITECTURES[@]}"; do
+            # upx --lzma -o "./bin/sing-box_upx-${VERSION}-${ARCH}" "./bin/sing-box-${VERSION}-${ARCH}"
+          # done
+
+      - name: Gzip Core
+        run: |
+          cd bin
+          VERSION=$(git describe --tags)
+
+          # Define an array of architectures
+          ARCHITECTURES=("android-armv8" "android-armv7" "android-armv8-liteTAGS" "android-armv7-liteTAGS")
+
+          for ARCH in "${ARCHITECTURES[@]}"; do
+            gzip -r "sing-box-${VERSION}-${ARCH}"
+            # gzip -r "sing-box_upx-${VERSION}-${ARCH}"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sing-box_abdroid_core
+          path: bin/
+
+      - name: Display structure of downloaded files
+        run: ls -R
+        working-directory: bin/
+
+  upload:
+    name: Telegram Upload Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Donwload Artifacts core
+        uses: actions/download-artifact@v3
+        with:
+          name: sing-box_abdroid_core
+          path: bin/
+
+      - name: Upload to telegram
+        env:
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CACHE_CHAT_ID: ${{ secrets.CACHE_CHAT_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: sing-box-yaott
+        run: |
+          export VERSION=$(git describe --tags)
+          export CG=$(git log --oneline -n 10)
+          FILE=$(find ./bin/* -type f)
+          pip3 install python-telegram-bot
+          python3 docs/tubot.py $FILE
+
