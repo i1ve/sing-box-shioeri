@@ -29,6 +29,8 @@ type proxyClashShadowsocks struct {
 	UDP               *bool          `yaml:"udp,omitempty"`
 	UDPOverTCP        bool           `yaml:"udp-over-tcp,omitempty"`
 	UDPOverTCPVersion uint8          `yaml:"udp-over-tcp-version,omitempty"`
+	//
+	MuxOptions *proxyClashSingMuxOptions `yaml:"smux,omitempty"`
 }
 
 type ProxyShadowsocks struct {
@@ -127,6 +129,17 @@ func (p *ProxyShadowsocks) GenerateOptions() (*option.Outbound, error) {
 		opt.ShadowsocksOptions.UDPOverTCPOptions = &option.UDPOverTCPOptions{
 			Enabled: true,
 			Version: p.clashOptions.UDPOverTCPVersion,
+		}
+	}
+
+	if p.clashOptions.MuxOptions != nil && p.clashOptions.MuxOptions.Enabled {
+		opt.ShadowsocksOptions.MultiplexOptions = &option.MultiplexOptions{
+			Enabled:        true,
+			Protocol:       p.clashOptions.MuxOptions.Protocol,
+			MaxConnections: p.clashOptions.MuxOptions.MaxConnections,
+			MaxStreams:     p.clashOptions.MuxOptions.MaxStreams,
+			MinStreams:     p.clashOptions.MuxOptions.MinStreams,
+			Padding:        p.clashOptions.MuxOptions.Padding,
 		}
 	}
 
